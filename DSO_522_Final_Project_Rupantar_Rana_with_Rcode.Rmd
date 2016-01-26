@@ -1,0 +1,449 @@
+---
+title: "Time series analysis project"
+author: "Rupantar Rana"
+output: pdf_document
+---
+
+#Los Angeles International Airport - Passenger Traffic Prediction
+
+##Introduction and Motivation##
+
+Air traffic forecast serves as an important quantitative basis for airport planning - in particular for capacity planning, CAPEX as well as for aeronautical and non-aeronautical revenue planning. High level decision and planning in airports relies heavily on future airport activity. Many research have shown that airport traffic is subject to great volatility now then has been the case in the past. Many past predictive models for air traffic models have mixed performance due to unanticipated events and circumstances in the forcasts.
+
+The goal of this analysis is to provide a realistic forecast based on latest available data to reflect the current conditions at the airport, supported by information in the study providing an adequate justification for the airport planning and development. 
+
+
+The aim here is to develop a model that can accurately predict the volume of air traffic in Los Angeles International Airport  using the dataset that is available from the data.gov website. 
+
+##Data  Description##
+
+__Date Range__ : From 1/1/2006 to 9/1/2015  
+
+__Datasource Description__ :  The dataset contains details of the Passenger Traffic in Los Angeles International Airport. It is a non-federal data set downloaded from the data.gov website. This dataset consists of 4286 rows and 9 columns and contains the following variables. 
+
+__Data extraction date__ : This is the exact date at which the data was extracted. At this stage we can ignore this variable as it is not related to the analysis. 
+
+__Report Period__ : This is the date variable that is used as the date variable for the time series analysis. 
+
+__Terminal__ : The airport terminal from Terninal 1 to Terminal 8 , Misc. Terminal and Tom Bradley international airport.  
+
+__Arrival Departure__ : This variable is used to indicate whether the passengers were recorded on arrival or on departure.
+
+__Domestic International Airport__ : This variable indicates Whether it is a domestic or international airport
+
+__Passenger Count__ : The number of passengers recorded on that particular day.
+
+https://catalog.data.gov/dataset/los-angeles-international-airport-passenger-traffic-by-terminal-756ee
+
+##Initial Hypothesis##
+
+From the research on passenger activity on airport, passenger traffic should have a time dependent structure. Additionally, socio-economic factors could be used to explain some of the causal relationship with passenger traffic. Air traffic activity could also be affected by interaction of supply and demand factors. The demand in aviation is largely a function of demographic and economic factors. Supply factors such as cost, competition and regulations could also help determine air traffic activity. 
+
+
+\pagebreak
+
+##Aviation forecasting background and techniques#
+
+
+
+Some of the forecasting techniques that have been traditionally used include the following: 
+
+__Time Series Forecasting__ : Time series trend and seasonality extrapolation using statistical techniques that rely on past data to predict the future values  
+
+__Econometric modelling with explanatory variables__ : This type of modelling techniques relies on examining the relationship between traffic data and possible explanatory variables such as GDP, disposable income, price of fuel and so forth   
+__Simulations__ : A method where snapshots or samples of data can be regenerated using complex models to explore and forecast the future values  
+
+__Ensemble Modelling__ : Here the forecast of all the above mentioned methods can be combined to devise a model that performs better than the individual methods   
+
+__Market share analysis__ : A technique used to forecast a local activity as a share of a larger some larger aggregated activity. eg. airport traffic may be based on national traffic which may have been forecasted by a third party. 
+
+For our analysis we will be using time series analysis to model the time dependent structure of passenger traffic behaviour for Los Angeles international Airport. 
+
+
+##Procedure 1 : Time Series Analysis##
+
+
+We shall start by performing exploratory data analysis for the data set, then we shall investivate and come up with candidate models for forecasting. We will use the best possible model to predict passenger activity. Finally we will predict  for the next 12 months from Oct-2015 to Sep-2016 with 80% and 95% confidence intervals. 
+
+
+```{r results='hide',message=FALSE, warning=FALSE}
+
+#Imperial Terminal 
+
+library(forecast)
+library(tseries)
+library(ggplot2)
+library(lubridate)
+
+# reading the data into R
+
+
+datats = read.csv("Rdata.csv")
+datats$Date = ymd(datats[,1])
+head(datats)
+
+
+# First we need to order this data set by day
+Ordered_data_ts = datats[order(as.Date(datats$Date, format="%Y/%m/%d")),]
+
+# creating a timeseries data set and setting the frequency as 12 as it is monthly data.
+
+ts_data = Ordered_data_ts[1:94,2]
+
+timeseries_data = ts(ts_data,frequency = 12)
+
+# plot to explore the time series 
+
+
+ggplot(Ordered_data_ts, aes(Date, Passenger_Count)) + geom_line() + xlab("Date/year") + ggtitle("Passenger traffic: Los Angeles Internation Airport") + ylab("Passenger Count")
+
+
+
+# As we can see from the plot the trend clearly is seasonal with a slight trend component present
+```
+
+###Stationarity Test###
+
+We can observe from the plot above that the passenger traffic in Imperial terminal at Los Angeles International airport is fairly seasonal with a slight upward trend. 
+
+Next we shall perform the Augmented Dickey Fuller test and Kpss test to see if the trend and level of the passenger traffic is stationary or non stationary.
+
+__Augmented Dickey Fuller Test__
+
+```{r ,warning = FALSE}
+
+adf.test(timeseries_data)
+
+
+```
+
+The Augmented Dickey fuller test has a P value of less than 0.05 which seems to suggest that the time series is stationary. We can clearly see a trend in data so let us perform some more formal test of stationarity. 
+
+__Kwiatkowski-Phillips-Schmidt-Shin ( KPSS Test)__
+
+```{r warning= FALSE}
+
+kpss.test(timeseries_data, null = c("Level"))
+
+kpss.test(timeseries_data, null = c("Trend"))
+
+```
+
+The results of the kpss test suggests that our time series is neither level stationary nor trend stationary. For more details on stationarity you can refer to :  
+http://www.mathworks.com/help/econ/trend-stationary-vs-difference-stationary.html
+
+###ACF and PACF Evaluation###
+
+Let us use the tsdisplay function in R to see the examine the time series plot of data along with its acf and either its pacf, lagged scatterplot or spectrum.
+
+```{r, warning = FALSE}
+
+tsdisplay(timeseries_data,lag.max = 50, main = "Time series display output with ACF and PACF")
+
+```
+As we can see from the above ACF curve there is significant seasonal lags. To incorporate these seasonal lags in our model we need to perform seasonal differencing. 
+
+
+```{r}
+
+tsdisplay(diff(timeseries_data,12), lag.max = 50, main = "Lag 1 Seasonal Differenced:
+          Time series display output with ACF and PACF")
+
+```
+
+After removing the seasonal lags we can notice high auto correlation evident from the trend present in the data. We need to perform further lag 1 differencing in order to make this data stationary.
+
+```{r}
+
+tsdisplay(diff(diff(timeseries_data,12),1), lag.max = 50, main = "Double differenced data:
+          Time series display output with ACF and PACF")
+
+```
+
+###Model Building###
+
+The  ACF and PACF of the double differenced data suggests that the following ARIMA model could be the best candidates : 
+
+
+__ARIMA(0,1,1)[0,1,1][12]__ 
+
+
+```{r}
+
+Model_Imperial_Terminal_1 = Arima(timeseries_data,order = c(0,1,1),seasonal = c(1,1,1))
+
+```
+
+We have now built the model and need to perform residual diagnosis before we move on to predict using the model. 
+
+###Residual Diagnosis###
+```{r}
+
+residuals_Model_Imperial_Terminal_1 = residuals(Model_Imperial_Terminal_1)
+
+tsdisplay(residuals_Model_Imperial_Terminal_1, main = "Residual Diagnosis of our model")
+
+```
+
+The residuals seem fairly linear in distribution and they do not show any significant auto correlation which means that our model is adequately built. Let us further examine the residuals for test of significant autocorrelation by examining performing the Box test. 
+
+```{r }
+
+Box.test(residuals_Model_Imperial_Terminal_1)
+
+```
+The P-value of the Box test is high suggesting that the residuals are not auto correlated. 
+
+Let us go ahead and forecast with our model. 
+
+```{r , warning = FALSE}
+
+par(mfrow = c(1,2))
+
+hist(residuals_Model_Imperial_Terminal_1, xlab = "Residuals" , main = 'Histogram of model Residuals')
+qqnorm(residuals_Model_Imperial_Terminal_1)
+qqline(residuals_Model_Imperial_Terminal_1)
+
+par(mfrow = c(1,1)) 
+
+```
+The standard assumption in linear regression is that the theoretical residuals are independent and normally distributed. We can see from the above histogram and the qq plot, that the residuals confirm to this assumption of normality.
+
+\pagebreak
+
+12 months forecast using the model we have built.
+
+```{r , warning = FALSE}
+
+Forecast12months = forecast(Model_Imperial_Terminal_1, h = 23)
+
+plot(Forecast12months, main = "12 months forecast of passenger Traffic
+     Los Angeles International Airport")
+
+pred_arima = as.vector(Forecast12months$mean)
+
+```
+Please note that the axis is not formatted properly. I could not find a way to format the x axis while plotting the forcasted data. 
+
+
+
+## 12 months  from Oct-2015 to Sep-2016 passenger traffic forecast with 80% and 95% confidence intervals ##
+
+```{r}
+
+Forecast12months
+```
+\pagebreak
+
+
+##Econometric Modelling with Econometric Variables##
+
+Econometric modeling is a widely used statistical modelling technique that is used in various studies. Econometric models are fitted using least-squares regression or maximum likelywood principle estimation. Regression models relate the independent variables on the right hand side of the model equation to the left hand side of the equation. 
+One of the econometric variables chosen is the personal income. 
+
+### Econometric Variable Identification ###
+
+
+###Data Gathering and Cleaning###
+
+```{r  , warning = FALSE, results = 'hide'}
+
+data_frame = NULL
+
+data_pi = read.csv("PI.csv")
+
+data_frame$date = Ordered_data_ts$Date
+
+data_frame$time = seq(1:117)
+
+data_frame = as.data.frame(data_frame)
+
+data_frame$month = (c(rep(seq(1,12),9),1:9))
+
+data_frame$pi = data_pi[,1]
+
+jet_fuel_data = read.csv("jet_fuel.csv")
+
+jet_fuel_data = jet_fuel_data[,1]
+
+data_frame$jet_fuel = jet_fuel_data 
+
+unemployment_rate = read.csv("unemployment_rate.csv")
+
+dim(unemployment_rate)
+
+data_frame$unemployment_rate = as.numeric(unemployment_rate[,1])
+
+head(data_frame)
+
+data_frame$passenger = Ordered_data_ts$Passenger_Count
+        
+head(data_frame)
+        
+write.csv(data_frame,file = "eco_data_frame.csv" )
+
+```
+
+
+###Model Building###
+
+
+__Personal Income data__ : As per Bureau of Economic Analysis,  personal income measures the income received by persons from participation in production, from government and business transfers, and from holding interest-bearing securities and corporate stocks. Personal income also includes income received by nonprofit institutions serving households, by private non-insured welfare funds, and by private trust funds. BEA also publishes disposable personal income, which measures the income available to households after paying federal and state and local government income taxes.
+
+Income from production is generated both by the labor of individuals (for example, in the form of wages and salaries and of proprietors' income) and by the capital that they own (in the form of rental income of persons). Income that is not earned from production in the current period-such as capital gains, which relate to changes in the price of assets over time-is excluded.
+
+Data source: Seasonally adjusted personal income(in billions) data  
+https://research.stlouisfed.org/fred2/categories/110  
+
+
+```{r     = FALSE, results = "hide"}
+ggplot(data_frame,aes(date,pi))+geom_line() + xlab("Date/year") + ggtitle("Personal Income from Jan-2006 to Sep-2015") + ylab("PI in billions")
+
+```
+
+__Unemployment Rate__ : The unemployment rate is a key indicator of labor market performance. Accordingn to U.S. Bureau of Labor statistics (BLS), when a worker lose employment, their families lose wages, and the nation as a whole loses its contribution to the economy in terms of the goods and the services that could have been produced otherwise. The unemployment rate is used as an economic independent/explanatory variable for the model to forecast passenger activity in the airport under consideration.
+
+Datasource - Monthly unemployment rate data downloaded from  
+http://data.bls.gov/timeseries/LNS14000000
+
+
+```{r  , results = "hide"}
+
+ggplot(data_frame,aes(date,unemployment_rate))+geom_line() + xlab("Date/year") + ggtitle("Unemployment rate from Jan-2006 to Sep-2016") + ylab("Unemployment Rate")
+```
+
+__Jet_Fuel__ : The volatility associated with the jet fuel price is also an important supply side factor to evaluate when determining the forcast for passenger activity. The price of jet fuel in 2000 was $ per gallon , it increased to $ per gallon and presently is at $ per gallon.
+
+This volatility is depicted in the figure below. 
+
+
+```{r , results = "hide"}
+
+ggplot(data_frame,aes(date,jet_fuel))+geom_line() + xlab("Date/year") + ggtitle("Jet Fuel price from Jan-2006 to Sep-2016") + ylab("Jet Fuel price in  $ per barrel")
+```
+
+```{r , results = "hide"}
+
+
+Model_slr = lm(passenger~time,data = data_frame)
+
+summary(Model_slr)
+
+# Rsquared of 24 % not bad
+# let us add some more variables to our model 
+
+Model_slr_2 = lm(passenger~time+month,data = data_frame)
+
+summary(Model_slr_2)
+
+# Dividing data into training and testing set. 
+
+dim(data_frame)
+
+# Let us keep 80% of data in the training set and the rest as the testing set
+
+training_data = data_frame[1:94,]
+testing_data = data_frame[95:117,-7]
+testing_y = data_frame[95:117,7]
+
+# Model three
+
+Model_slr_3 = lm(passenger~time+month+pi+jet_fuel+unemployment_rate,data  = training_data)
+
+summary(Model_slr_3)
+
+prediction = as.data.frame(predict(Model_slr_3,testing_data,interval = 'predict'))
+
+head(prediction)
+
+#RMSE of the validation set:
+        
+sqrt(mean((prediction$fit - testing_y)^2) )
+
+pred_econometric = as.vector(prediction$fit)
+
+```
+### Model summary ###
+
+Ecometric model built using the time, month, jet_fuel price and unemployment rate as the explanatory variable to predict the passenger traffic in the airport had a Adjusted R-squared of 0.41. Unemployment rate and month have a low p-values suggesting that they are significant in explaning the variation in the passenger traffic at Los Angeles international airport. Additionally the time dependent structure is more
+
+### Holtz Winters Exponential Smoothing ###
+
+Holt (1957) and Winters (1960) extended Holt's method to capture seasonality. The Holt-Winters seasonal method comprises the forecast equation and three smoothing equations - one for the level ???t, one for trend bt, and one for the seasonal component denoted by st, with smoothing parameters ??, ????? and ??. We use m to denote the period of the seasonality, i.e., the number of seasons in a year. For example, for quarterly data m=4, and for monthly data m=12.
+
+There are two variations to this method that differ in the nature of the seasonal component. The additive method is preferred when the seasonal variations are roughly constant through the series, while the multiplicative method is preferred when the seasonal variations are changing proportional to the level of the series. With the additive method, the seasonal component is expressed in absolute terms in the scale of the observed series, and in the level equation the series is seasonally adjusted by subtracting the seasonal component. Within each year the seasonal component will add up to approximately zero. With the multiplicative method, the seasonal component is expressed in relative terms (percentages) and the series is seasonally adjusted by dividing through by the seasonal component. Within each year, the seasonal component will sum up to approximately m.
+
+
+
+```{r}
+
+fit1 <- hw(timeseries_data, seasonal="additive", h = 23)
+
+plot(fit1)
+
+prediction_hw = forecast(fit1)
+
+pred_holtz_winters = prediction_hw$mean
+```
+
+
+
+### Time Series Decomposition ###
+
+The decomposition of time series is a statistical method that deconstructs a time series into notional components.
+
+This is an important technique for all types of time series analysis, especially for seasonal adjustment. It seeks to construct, from an observed time series, a number of component series (that could be used to reconstruct the original by additions or multiplications) where each of these has a certain characteristic or type of behaviour. For example, time series are usually decomposed into:
+
+1. the Trend Component that reflects the long term progression of the series (secular variation)
+2. the Cyclical Component that describes repeated but non-periodic fluctuations
+3. the Seasonal Component reflecting seasonality (seasonal variation)
+4. the Irregular Component  (or "noise") that describes random, irregular influences. It represents the residuals of the time series after the other components have been removed.
+
+Using the base R function for time series decomposition, we shall decompose the time series into seasonal,trend and irregular components using the moving averages. 
+
+[source: wikipedia]
+
+```{r}
+plot(decompose(timeseries_data))
+
+```
+
+###Ensemble Method###
+
+Ensemble modeling is the process of running two or more related but different analytical models and then synthesizing the results into a single score or spread in order to improve the accuracy of predictive analytics and data mining applications.
+
+```{r  , results='hide'}
+
+ensemble_data = NULL
+
+ensemble_data = cbind(ensemble_data,pred_arima)
+ensemble_data = cbind(ensemble_data,pred_holtz_winters)
+ensemble_data = cbind(ensemble_data,pred_econometric)
+
+ensemble_data = as.data.frame(ensemble_data)
+
+Ensemble_forecast = apply(ensemble_data,1,mean)
+
+Ensemble_forecast
+
+sqrt(mean((Ensemble_forecast - testing_y)^2))
+
+Ensemble_forecast
+```
+Ensemble model Rmse = 525302.2
+
+A simple averaging ensemble model that takes the individual forecasts from Arima , Exponential smoothing and Econometric modelling, averages them to produce an entimated forecast is so far the best method in terms of cross validation rmse.
+
+
+##Executive summary##
+
+Forecasting methods used to project airport activity should reflect not only the time dependence structure of passenger activity but also the underlying demographic and economic causal relationships that drives passenger traffic. Demand and supply factors need to be accounted for when measuring passenger activity levels.  Supply factors such as cost, competition, and regulations could impact air passenger traffic as well. The projections of aviation activity that result from applying appropriate forecasting methods and modelling the relationships between causal variables need to be further evaluated before using them in strategy and planning situations. Aviation forecasters must use their professional judgement and domain expertise to determine what is reasonable when developing quantifiable results.
+
+
+
+
+
+
+
+
+
